@@ -42,6 +42,7 @@ export default function Home() {
             <p className="text-gray-600">{feature.description}</p>
           </div>
         ))}
+        
       </div>
     </div>
   );

@@ -4,6 +4,9 @@ import Home from './pages/Home';
 import Upload from './pages/Upload';
 import Result from './pages/Result';
 import History from './pages/History';
+import Scanner from './pages/Scanner';
+
+
 
 function App() {
   return (
@@ -15,6 +18,7 @@ function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/result" element={<Result />} />
           <Route path="/history" element={<History />} />
+          <Route path="/scanner" element={<Scanner />} />
         </Routes>
       </main>
     </div>
