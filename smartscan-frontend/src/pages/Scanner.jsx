@@ -1,43 +1,76 @@
 import React, { useRef, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import { Settings2, Globe, Camera, RefreshCw } from "lucide-react";
+import { processImage } from "../services/api";
 
-const Scanner = () => {
+export default function Scanner() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
 
+  const savedSettings = JSON.parse(localStorage.getItem("smartscan_settings") || "{}");
+
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState("general");
-  const [ocrLang, setOcrLang] = useState("en");
+  const [mode, setMode] = useState(savedSettings.mode || "notes");
+  const [ocrLang, setOcrLang] = useState(savedSettings.language || "en");
+  const [targetLang, setTargetLang] = useState(savedSettings.targetLang || "ta");
 
   const navigate = useNavigate();
 
-  // 🎥 Start Camera
+  // 🎥 Start camera
   useEffect(() => {
+  let isMounted = true;
+
+  if (isMounted) {
     startCamera();
-    return () => stopCamera();
-  }, []);
+  }
 
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
-      videoRef.current.srcObject = stream;
-    } catch (err) {
-      alert("Camera access denied ❌");
-      console.error(err);
-    }
+  return () => {
+    isMounted = false;
+    stopCamera();
   };
+}, []);
 
+ const startCamera = async () => {
+  try {
+    // ✅ Check browser support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert("Camera not supported in this browser ❌");
+      return;
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "environment" // 📱 mobile back camera
+      }
+    });
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+
+  } catch (err) {
+    console.error("🎥 Camera Error:", err);
+
+    // 🔥 Detailed error handling
+    if (err.name === "NotAllowedError") {
+      alert("Camera permission denied ❌\n\n👉 Allow camera in browser settings");
+    } else if (err.name === "NotFoundError") {
+      alert("No camera found on this device ❌");
+    } else if (err.name === "NotReadableError") {
+      alert("Camera is already in use by another app ❌");
+    } else {
+      alert("Camera error: " + err.message);
+    }
+  }
+};
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
+    if (videoRef.current?.srcObject) {
       videoRef.current.srcObject.getTracks().forEach((track) => track.stop());
     }
   };
 
-  // 📸 Capture Image
+  // 📸 Capture
   const captureImage = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -59,121 +92,196 @@ const Scanner = () => {
     startCamera();
   };
 
-  // 🚀 Send to Backend
+  // 🚀 Process
   const handleScan = async () => {
-    try {
-      setLoading(true);
-
-      const blob = await fetch(image).then((res) => res.blob());
-
-      const formData = new FormData();
-      formData.append("file", blob, "scan.png");
-      formData.append("mode", mode);
-      formData.append("ocrLang", ocrLang);
-
-      const response = await axios.post(
-        "http://localhost:8000/process", // 🔥 change to Render URL later
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
-      );
-
-      navigate("/result", { state: response.data });
-    } catch (error) {
-      console.error(error);
-      alert("Scan failed ❌");
-    } finally {
-      setLoading(false);
+  try {
+    // ✅ Check image first
+    if (!image) {
+      alert("Please capture image first ❗");
+      return;
     }
-  };
+
+    setLoading(true);
+
+    // ✅ Convert base64 → blob safely
+    const res = await fetch(image);
+    if (!res.ok) throw new Error("Failed to convert image");
+
+    const blob = await res.blob();
+
+    const formData = new FormData();
+    formData.append("file", blob, "scan.png");
+    formData.append("mode", mode);
+    formData.append("ocrLang", ocrLang);
+    formData.append("targetLang", targetLang);
+
+    console.log("📤 Sending request...");
+
+    const response = await processImage(formData);
+
+    console.log("✅ Response:", response.data);
+
+    // 💾 Save history safely
+    try {
+      const historyItem = {
+        id: Date.now(),
+        title: "Scanned Document",
+        date: new Date().toLocaleString(),
+        mode,
+        result: response.data,
+      };
+
+      const existingHistory = JSON.parse(localStorage.getItem("smartscan_history") || "[]");
+
+      localStorage.setItem(
+        "smartscan_history",
+        JSON.stringify([historyItem, ...existingHistory].slice(0, 30))
+      );
+    } catch (e) {
+      console.warn("History save failed", e);
+    }
+
+    navigate("/result", {
+      state: { result: response.data, fileUrl: image },
+    });
+
+  } catch (error) {
+    console.error("🔥 FULL ERROR:", error);
+
+    // ✅ Better error messages
+    if (error.response) {
+      alert("Backend Error: " + JSON.stringify(error.response.data));
+    } else if (error.request) {
+      alert("Cannot connect to backend ❌");
+    } else {
+      alert(error.message || "Unexpected error ❌");
+    }
+
+  } finally {
+    setLoading(false);
+  }
+};
+  if (loading) {
+    return <div className="text-center mt-20 text-lg font-semibold">Processing... ⏳</div>;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-      <h1 className="text-2xl font-bold mb-4">📸 Scanner</h1>
+    <div className="max-w-5xl mx-auto w-full p-4 animate-in slide-in-from-bottom-4">
+      <div className="bg-white rounded-3xl p-6 md:p-10 shadow-sm border">
 
-      {/* 🎥 Camera or Preview */}
-      {!image ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          className="w-full max-w-md rounded-lg shadow-lg"
-        />
-      ) : (
-        <img
-          src={image}
-          alt="preview"
-          className="w-full max-w-md rounded-lg shadow-lg"
-        />
-      )}
+        <h2 className="text-3xl font-bold mb-6">📸 Scan Document</h2>
 
-      <canvas ref={canvasRef} className="hidden" />
+        <div className="grid md:grid-cols-5 gap-8">
 
-      {/* 🎛 Controls */}
-      <div className="mt-4 flex flex-col gap-3 w-full max-w-md">
-        {!image ? (
-          <button
-            onClick={captureImage}
-            className="bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
-          >
-            📸 Capture
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={retake}
-              className="bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600"
-            >
-              🔄 Retake
-            </button>
+          {/* 📷 Camera */}
+          <div className="md:col-span-3">
+            {!image ? (
+              <video ref={videoRef} autoPlay className="rounded-xl shadow" />
+            ) : (
+              <img src={image} alt="preview" className="rounded-xl shadow" />
+            )}
 
-            <button
-              onClick={handleScan}
-              className="bg-green-500 text-white py-2 rounded-lg hover:bg-green-600"
-            >
-              🚀 Scan & Extract
-            </button>
-          </>
-        )}
+            <canvas ref={canvasRef} className="hidden" />
 
-        {/* ⚙️ Options */}
-        <div className="bg-white p-3 rounded-lg shadow">
-          <label className="block mb-2 font-semibold">Mode</label>
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="general">General OCR</option>
-            <option value="translate">Translate</option>
-            <option value="ticket">Ticket</option>
-            <option value="medical">Medical</option>
-          </select>
+            <div className="mt-4 flex gap-3">
+              {!image ? (
+                <button
+                  onClick={captureImage}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-xl flex items-center gap-2"
+                >
+                  <Camera size={18} /> Capture
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={retake}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-xl flex items-center gap-2"
+                  >
+                    <RefreshCw size={18} /> Retake
+                  </button>
 
-          <label className="block mt-3 mb-2 font-semibold">
-            OCR Language
-          </label>
-          <select
-            value={ocrLang}
-            onChange={(e) => setOcrLang(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="en">English</option>
-            <option value="ta">Tamil</option>
-          </select>
+                  <button
+                    onClick={handleScan}
+                    className="bg-green-600 text-white px-4 py-2 rounded-xl"
+                  >
+                    🚀 Scan & Extract
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ⚙️ Options Panel */}
+          <div className="md:col-span-2 space-y-6">
+
+            <div className="flex items-center gap-2">
+              <Settings2 className="text-indigo-600" />
+              <h3 className="font-semibold text-lg">Options</h3>
+            </div>
+
+            <div className="bg-gray-50 p-5 rounded-2xl space-y-4">
+
+              {/* OCR Language */}
+              <div>
+                <label className="text-sm font-medium flex gap-2 items-center">
+                  <Globe size={16} /> OCR Language
+                </label>
+                <select
+                  value={ocrLang}
+                  onChange={(e) => setOcrLang(e.target.value)}
+                  className="w-full mt-2 p-3 rounded-xl border"
+                >
+                  <option value="en">English</option>
+                  <option value="ta">Tamil</option>
+                </select>
+              </div>
+
+              {/* Mode */}
+              <div>
+                <label className="text-sm font-medium">Mode</label>
+                <select
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value)}
+                  className="w-full mt-2 p-3 rounded-xl border"
+                >
+                  <option value="notes">Notes</option>
+                  <option value="ticket">Ticket</option>
+                  <option value="translate">Translate</option>
+                  <option value="medical">Medical</option>
+                </select>
+              </div>
+
+              {/* 🌐 Translate Options */}
+              {mode === "translate" && (
+                <div>
+                  <label className="text-sm font-medium flex gap-2 items-center text-indigo-700">
+                    <Globe size={16} /> Translate to
+                  </label>
+
+                  <select
+                    value={targetLang}
+                    onChange={(e) => setTargetLang(e.target.value)}
+                    className="w-full mt-2 p-3 rounded-xl border bg-indigo-50"
+                  >
+                    <option value="en">English</option>
+                    <option value="ta">Tamil (தமிழ்)</option>
+                    <option value="hi">Hindi (हिन्दी)</option>
+                    <option value="te">Telugu (తెలుగు)</option>
+                    <option value="ml">Malayalam (മലയാളം)</option>
+                    <option value="kn">Kannada (ಕನ್ನಡ)</option>
+                    <option value="fr">French</option>
+                    <option value="es">Spanish</option>
+                    <option value="de">German</option>
+                    <option value="ja">Japanese</option>
+                    <option value="zh-cn">Chinese</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
       </div>
-
-      {/* ⏳ Loading */}
-      {loading && (
-        <div className="mt-4 text-blue-600 font-semibold">
-          Processing... ⏳
-        </div>
-      )}
     </div>
   );
-};
-
-export default Scanner;
+}

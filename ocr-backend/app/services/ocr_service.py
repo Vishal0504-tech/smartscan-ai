@@ -1,15 +1,13 @@
 from paddleocr import PaddleOCR
 
-ocr_en = PaddleOCR(lang='en')
-ocr_ta = PaddleOCR(lang='ta')
+# Load once (important)
+ocr_en = PaddleOCR(use_angle_cls=True, lang='en')
+ocr_ta = PaddleOCR(use_angle_cls=True, lang='ta')
 
 def extract_text(image, lang="en"):
-    if lang == "ta":
-        ocr = ocr_ta
-    else:
-        ocr = ocr_en
+    ocr = ocr_ta if lang == "ta" else ocr_en
 
-    result = ocr.ocr(image)
+    result = ocr.ocr(image, cls=True)
 
     texts = []
     for line in result:

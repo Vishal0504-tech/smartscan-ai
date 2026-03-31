@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routes import process
 
-app = FastAPI()
+app = FastAPI(title="SmartScan AI Backend")
 
 # CORS (important for React)
 app.add_middleware(

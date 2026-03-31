@@ -6,40 +6,57 @@ from app.utils.formatter import format_notes
 from app.utils.ticket_parser import extract_ticket_info
 import numpy as np
 import cv2
+
 router = APIRouter()
 
 @router.post("/process")
 async def process_image(
     file: UploadFile = File(...),
-    mode: str = Form(...),
+    mode: str = Form("general"),
     targetLang: str = Form("en"),
-    ocrLang: str = Form("en")   # 👈 NEW
+    ocrLang: str = Form("en")
 ):
     contents = await file.read()
 
-    # 🔄 Convert to OpenCV image
-    np_arr = np.frombuffer(contents, np.uint8)
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    
-
+    # ✅ Use preprocess directly (handles decoding internally)
     image = preprocess_image(contents)
 
+    # 🧠 OCR
     text = extract_text(image, ocrLang)
 
+    # 🔁 Response handling
     if mode == "translate":
         translated = translate_text(text, targetLang)
         return {
+            "mode": mode,
             "original": text,
             "translated": translated
         }
 
     elif mode == "notes":
         formatted = format_notes(text)
-        return {"formatted": formatted}
+        return {
+            "mode": mode,
+            "formatted": formatted
+        }
 
     elif mode == "ticket":
         data = extract_ticket_info(text)
-        return {"ticket": data}
+        return {
+            "mode": mode,
+            "ticket": data
+        }
 
-    return {"text": text}
+    elif mode == "medical":
+        return {
+            "mode": mode,
+            "medical": {
+                "raw_text": text,
+                "note": "Enhance with AI later"
+            }
+        }
+
+    return {
+        "mode": "general",
+        "text": text
+    }
